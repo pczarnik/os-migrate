@@ -120,7 +120,8 @@ UPSTREAM_UTILS     := $(UPSTREAM_REPO)/plugins/module_utils
 VENDORED_MODULES := auth compute_flavor compute_flavor_info floating_ip identity_domain identity_role \
 	identity_user identity_user_info image image_info keypair network networks_info port project \
 	project_info role_assignment router security_group security_group_rule server \
-	server_action server_info server_volume subnet subnets_info volume volume_info
+	server_action server_info server_volume subnet subnets_info volume volume_info \
+	volume_snapshot volume_snapshot_info
 
 VENDORED_MODULE_UTILS := openstack ironic resource
 
