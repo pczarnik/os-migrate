@@ -1,0 +1,46 @@
+@startuml
+
+skinparam ArrowFontColor darkred
+skinparam CloudBorderColor gray
+skinparam ComponentBorderColor black
+skinparam NodeBorderColor gray
+skinparam LegendFontSize 10
+skinparam NoteFontSize 9
+
+title Snapshot migration (data flow)
+
+cloud Source {
+    rectangle "Snapshots" as src_snap
+    rectangle "Volumes" as src_vol
+    component "CH" as src_ch
+}
+
+cloud Destination {
+    component "CH" as dst_ch
+    rectangle "Volumes" as dst_vol
+    rectangle "Snapshots" as dst_snap
+}
+
+src_snap -right-> src_vol
+src_vol -right-> src_ch
+src_ch -right-> dst_ch : Binary data
+dst_ch -right-> dst_vol
+dst_vol -right-> dst_snap
+
+
+node Migrator {
+    file "Serialized\nmetadata" as ser_res
+}
+
+src_snap .down.> ser_res : Metadata
+ser_res .down.> ser_res : Edit
+
+Migrator -[dotted]up-> src_vol : Create volumes\nfrom snapshots 
+Migrator -[dotted]up-> src_ch : Trigger detached\nvolumes migration
+Migrator -[dotted]up-> dst_snap : Create snapshots\nfrom volumes\nand metadata
+
+legend bottom left
+    CH = conversion host
+endlegend
+
+@enduml
