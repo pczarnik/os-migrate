@@ -22,6 +22,7 @@ RES_TYPE_SERVER_FLOATING_IP = "openstack.network.ServerFloatingIP"
 RES_TYPE_SERVER_PORT = "openstack.network.ServerPort"
 RES_TYPE_SERVER_VOLUME = "openstack.network.ServerVolume"
 RES_TYPE_SUBNET = "openstack.subnet.Subnet"
+RES_TYPE_SNAPSHOT = "openstack.block_storage.Snapshot"
 RES_TYPE_USER = "openstack.user.User"
 
 # References

@@ -1,0 +1,27 @@
+- name: Scan all volume snapshots in src
+  os_migrate.os_migrate.volume_snapshot_info:
+    cloud: src
+    validate_certs: "{{ os_migrate_src_validate_certs | default(omit) }}"
+    ca_cert: "{{ os_migrate_src_ca_cert | default(omit) }}"
+    client_cert: "{{ os_migrate_src_client_cert | default(omit) }}"
+    client_key: "{{ os_migrate_src_client_key | default(omit) }}"
+  register: src_snapshots_info
+
+- name: Create id-name pairs of snapshots to export
+  ansible.builtin.set_fact:
+    export_snapshots_ids_names: "{{ (src_snapshots_info.volume_snapshots
+      | from_yaml
+      | os_migrate.os_migrate.stringfilter(os_migrate_snapshots_filter, attribute='name')
+      | json_query('[*].{name: name, id: id}')
+      | sort(attribute='id')) }}"
+
+- name: Export snapshot
+  os_migrate.os_migrate.export_snapshot:
+    cloud: src
+    path: "{{ os_migrate_data_dir }}/snapshots.yml"
+    name: "{{ item['id'] }}"
+    validate_certs: "{{ os_migrate_src_validate_certs | default(omit) }}"
+    ca_cert: "{{ os_migrate_src_ca_cert | default(omit) }}"
+    client_cert: "{{ os_migrate_src_client_cert | default(omit) }}"
+    client_key: "{{ os_migrate_src_client_key | default(omit) }}"
+  loop: "{{ export_snapshots_ids_names }}"
