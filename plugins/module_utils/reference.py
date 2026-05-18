@@ -288,6 +288,30 @@ def subnet_pool_ref(conn, id_, required=True):
     return _fetch_ref(conn, conn.network.find_subnet_pool, id_, required)
 
 
+def volume_id(conn, ref, required=True):
+    """Fetch ID of Volume identified by reference dict `ref`. Use
+    OpenStack SDK connection `conn` to fetch the info. If `required`,
+    ensure the fetch is successful.
+
+    Returns: the ID, or None if not found and not `required`
+
+    Raises: openstack's ResourceNotFound when `required` but not found
+    """
+    return _fetch_id(conn, conn.block_storage.find_volume, ref, required)
+
+
+def volume_ref(conn, id_, required=True):
+    """Create reference dict for Volume identified by ID `id_`. Use
+    OpenStack SDK connection `conn` to fetch the info. If `required`,
+    ensure the fetch is successful.
+
+    Returns: the ref dict, or None if not found and not `required`
+
+    Raises: openstack's ResourceNotFound when `required` but not found
+    """
+    return _fetch_ref(conn, conn.block_storage.find_volume, id_, required)
+
+
 def domain_id(conn, ref, required=True):
     """Fetch ID of a Domain identified by reference dict `ref`. Use
     OpenStack SDK connection `conn` to fetch the info. If `required`,
