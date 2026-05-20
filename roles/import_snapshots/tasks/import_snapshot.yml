@@ -1,0 +1,129 @@
+- name: Check if snapshot already exists on destination
+  os_migrate.os_migrate.volume_snapshot_info:
+    cloud: dst
+    name: "{{ snapshot_resource['params']['name'] }}"
+    validate_certs: "{{ os_migrate_dst_validate_certs | default(omit) }}"
+    ca_cert: "{{ os_migrate_dst_ca_cert | default(omit) }}"
+    client_cert: "{{ os_migrate_dst_client_cert | default(omit) }}"
+    client_key: "{{ os_migrate_dst_client_key | default(omit) }}"
+  register: existing_dst_snapshot
+
+- name: Import snapshot when it does not exist on destination
+  when: existing_dst_snapshot.volume_snapshots | length == 0
+  block:
+    - name: Open cloud.yaml and set cloud variables as ansible vars
+      ansible.builtin.include_vars:
+        file: "{{ os_migrate_clouds_path | default(os_migrate_data_dir ~ '/clouds.yaml') }}"
+        name: cloud_vars
+
+    - name: Set block storage api version for source cloud
+      ansible.builtin.set_fact:
+        cloud_vars_src: "{{ cloud_vars.clouds['src'] | combine({'block_storage_api_version': '3'}) }}"
+
+    - name: Create temporary volume from snapshot on source
+      os_migrate.os_migrate.import_snapshot_create_src_volume:
+        cloud: "{{ cloud_vars_src }}"
+        snapshot_id: "{{ snapshot_resource['_info']['id'] }}"
+        volume_name_prefix: "{{ os_migrate_snapshot_volume_name_prefix }}"
+        volume_type: "{{ snapshot_resource['params']['volume_type'] | default(omit) }}"
+        timeout: "{{ os_migrate_timeout }}"
+      register: create_src_vol
+
+    - name: Build volume data for detached volume pipeline
+      ansible.builtin.set_fact:
+        temp_volume_data:
+          - _info:
+              id: "{{ create_src_vol.volume_id }}"
+              size: "{{ snapshot_resource['_info']['size'] }}"
+              is_bootable: false
+              attachments: []
+            _migration_params: {}
+            params:
+              name: "{{ os_migrate_snapshot_volume_name_prefix }}{{ snapshot_resource['_info']['id'] }}"
+              availability_zone: nova
+              description: null
+              volume_type: "{{ snapshot_resource['params']['volume_type'] | default(omit) }}"
+              volume_image_metadata: null
+            type: "openstack.network.ServerVolume"
+
+    - name: Expose source volume over NBD
+      os_migrate.os_migrate.import_volumes_export:
+        cloud: "{{ cloud_vars_src }}"
+        conversion_host:
+          "{{ os_src_conversion_host_info.openstack_conversion_host }}"
+        data: "{{ temp_volume_data }}"
+        ssh_key_path: "{{ os_migrate_conversion_keypair_private_path }}"
+        ssh_user: "{{ os_migrate_conversion_host_ssh_user }}"
+        log_dir: "{{ os_migrate_data_dir }}/volume_logs"
+        timeout: "{{ os_migrate_timeout }}"
+      register: exports
+
+    - name: Transfer volume to destination
+      os_migrate.os_migrate.import_volumes_transfer:
+        cloud: dst
+        validate_certs: "{{ os_migrate_dst_validate_certs | default(omit) }}"
+        ca_cert: "{{ os_migrate_dst_ca_cert | default(omit) }}"
+        client_cert: "{{ os_migrate_dst_client_cert | default(omit) }}"
+        client_key: "{{ os_migrate_dst_client_key | default(omit) }}"
+        conversion_host:
+          "{{ os_dst_conversion_host_info.openstack_conversion_host }}"
+        ssh_key_path: "{{ os_migrate_conversion_keypair_private_path }}"
+        ssh_user: "{{ os_migrate_conversion_host_ssh_user }}"
+        transfer_uuid: "{{ exports.transfer_uuid }}"
+        src_conversion_host_address:
+          "{{ os_src_conversion_host_info.openstack_conversion_host.address }}"
+        volume_map: "{{ exports.volume_map }}"
+        log_file: "{{ exports.log_file }}"
+        state_file: "{{ exports.state_file }}"
+        timeout: "{{ os_migrate_timeout }}"
+      register: transfer
+
+    - name: Clean up source conversion host
+      os_migrate.os_migrate.import_volumes_src_cleanup:
+        cloud: src
+        validate_certs: "{{ os_migrate_src_validate_certs | default(omit) }}"
+        ca_cert: "{{ os_migrate_src_ca_cert | default(omit) }}"
+        client_cert: "{{ os_migrate_src_client_cert | default(omit) }}"
+        client_key: "{{ os_migrate_src_client_key | default(omit) }}"
+        conversion_host: "{{ os_src_conversion_host_info.openstack_conversion_host }}"
+        ssh_key_path: "{{ os_migrate_conversion_keypair_private_path }}"
+        ssh_user: "{{ os_migrate_conversion_host_ssh_user }}"
+        transfer_uuid: "{{ exports.transfer_uuid }}"
+        volume_map: "{{ exports.volume_map }}"
+        log_file: "{{ exports.log_file }}"
+        state_file: "{{ exports.state_file }}"
+        timeout: "{{ os_migrate_timeout }}"
+
+    - name: Get destination volume ID from transfer results
+      ansible.builtin.set_fact:
+        dst_volume_id: "{{ (transfer.volume_map.values() | list | first).dest_id }}"
+
+    - name: Create snapshot on destination from transferred volume
+      os_migrate.os_migrate.import_snapshot_create_dst_snapshot:
+        cloud: dst
+        validate_certs: "{{ os_migrate_dst_validate_certs | default(omit) }}"
+        ca_cert: "{{ os_migrate_dst_ca_cert | default(omit) }}"
+        client_cert: "{{ os_migrate_dst_client_cert | default(omit) }}"
+        client_key: "{{ os_migrate_dst_client_key | default(omit) }}"
+        volume_id: "{{ dst_volume_id }}"
+        snapshot_name: "{{ snapshot_resource['params']['name'] }}"
+        snapshot_description: "{{ snapshot_resource['params']['description'] | default(omit) }}"
+        snapshot_metadata: "{{ snapshot_resource['params']['metadata'] | default({}) }}"
+        timeout: "{{ os_migrate_timeout }}"
+      register: create_dst_snap
+
+    - name: Delete destination temporary volume
+      os_migrate.os_migrate.import_snapshot_cleanup:
+        cloud: dst
+        validate_certs: "{{ os_migrate_dst_validate_certs | default(omit) }}"
+        ca_cert: "{{ os_migrate_dst_ca_cert | default(omit) }}"
+        client_cert: "{{ os_migrate_dst_client_cert | default(omit) }}"
+        client_key: "{{ os_migrate_dst_client_key | default(omit) }}"
+        volume_id: "{{ dst_volume_id }}"
+        timeout: "{{ os_migrate_timeout }}"
+
+    - name: Delete source temporary volume
+      os_migrate.os_migrate.import_snapshot_cleanup:
+        cloud: "{{ cloud_vars_src }}"
+        volume_id: "{{ create_src_vol.volume_id }}"
+        timeout: "{{ os_migrate_timeout }}"
